@@ -11,27 +11,38 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout output branch
+      - name: Checkout main (for script)
         uses: actions/checkout@v4
         with:
-          ref: output
+          ref: main
+          path: main
 
       - name: Generate SVGs
         env:
           GITHUB_USERNAME: rajehdidntwakeup
-        run: node .github/workflows/generate-stats.js
+        run: cd main && node .github/workflows/generate-stats.js
+
+      - name: Checkout output branch
+        uses: actions/checkout@v4
+        with:
+          ref: output
+          path: output
+
+      - name: Copy SVGs to output
+        run: cp main/stats.svg main/streak.svg main/top-langs.svg main/activity-graph.svg output/
 
       - name: Verify SVGs
         run: |
           for f in stats.svg streak.svg top-langs.svg activity-graph.svg; do
-            if [ ! -s "$f" ]; then
+            if [ ! -s "output/$f" ]; then
               echo "WARNING: $f is empty!"
             else
-              echo "OK: $f ($(wc -c < $f) bytes)"
+              echo "OK: $f ($(wc -c < output/$f) bytes)"
             fi
           done
 
       - name: Push to output branch
+        working-directory: output
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
