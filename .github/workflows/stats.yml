@@ -23,6 +23,7 @@ jobs:
       - name: Generate SVGs
         env:
           GITHUB_USERNAME: rajehdidntwakeup
+          GH_TOKEN: ${{ github.token }}
         run: cd main && node .github/workflows/generate-stats.js
 
       - name: Checkout output branch
