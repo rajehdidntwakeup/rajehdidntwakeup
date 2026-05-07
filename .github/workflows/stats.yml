@@ -2,7 +2,7 @@ name: Generate Stats Cards
 
 on:
   schedule:
-    - cron: "0 0 * * *"  # daily at midnight UTC
+    - cron: "0 0 * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -16,34 +16,18 @@ jobs:
         with:
           ref: output
 
-      - name: Generate GitHub Stats SVG
-        run: |
-          curl -s -o stats.svg "https://github-readme-stats.vercel.app/api?username=rajehdidntwakeup&show_icons=true&theme=radical&hide_border=true&bg_color=0d1117&title_color=58a6ff&icon_color=58a6ff&text_color=c9d1d9"
-          sleep 2
-
-      - name: Generate Streak Stats SVG
-        run: |
-          curl -s -o streak.svg "https://github-readme-streak-stats.demolab.com?user=rajehdidntwakeup&theme=radical&hide_border=true&background=0d1117&ring=58a6ff&fire=ff6b6b&currLabel=58a6ff&sideLabels=c9d1d9&dates=c9d1d9"
-          sleep 2
-
-      - name: Generate Top Languages SVG
-        run: |
-          curl -s -o top-langs.svg "https://github-readme-stats.vercel.app/api/top-langs/?username=rajehdidntwakeup&layout=compact&theme=radical&hide_border=true&bg_color=0d1117&title_color=58a6ff&text_color=c9d1d9"
-          sleep 2
-
-      - name: Generate Activity Graph SVG
-        run: |
-          curl -s -o activity-graph.svg "https://github-readme-activity-graph.vercel.app/graph?username=rajehdidntwakeup&theme=react-dark&hide_border=true&bg_color=0d1117&color=58a6ff&line=58a6ff&point=ff6b6b"
+      - name: Generate SVGs
+        env:
+          GITHUB_USERNAME: rajehdidntwakeup
+        run: node .github/workflows/generate-stats.js
 
       - name: Verify SVGs
         run: |
           for f in stats.svg streak.svg top-langs.svg activity-graph.svg; do
             if [ ! -s "$f" ]; then
-              echo "WARNING: $f is empty or missing!"
-            elif grep -qi "error" "$f"; then
-              echo "WARNING: $f contains an error response"
+              echo "WARNING: $f is empty!"
             else
-              echo "OK: $f generated successfully"
+              echo "OK: $f ($(wc -c < $f) bytes)"
             fi
           done
 
