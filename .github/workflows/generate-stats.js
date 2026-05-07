@@ -6,6 +6,21 @@ const USERNAME = process.env.GITHUB_USERNAME || 'rajehdidntwakeup';
 
 function escXml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+function restGet(path) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(`https://api.github.com${path}`, {
+      headers: { 'User-Agent': 'node', 'Authorization': `token ${TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch(e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+  });
+}
+
 function graphql(query) {
   const body = JSON.stringify({ query });
   return new Promise((resolve, reject) => {
@@ -36,90 +51,42 @@ function graphql(query) {
   });
 }
 
-async function graphqlWithRetry(query, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await graphql(query);
-    } catch (e) {
-      console.log(`Attempt ${i + 1} failed: ${e.message.slice(0, 100)}`);
-      if (i < retries - 1) await new Promise(r => setTimeout(r, 3000 * (i + 1)));
-      else throw e;
-    }
+// Try GraphQL calendar, fall back to REST-only
+async function fetchCalendar() {
+  try {
+    // Minimal calendar-only query
+    const calQuery = `query { user(login:"${USERNAME}") { contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { contributionCount date color } } } } } }`;
+    const data = await graphql(calQuery);
+    return data.user.contributionsCollection.contributionCalendar;
+  } catch (e) {
+    console.log('GraphQL calendar failed, using REST events fallback');
+    return null;
   }
 }
 
-function restGet(path) {
-  return new Promise((resolve, reject) => {
-    https.get(`https://api.github.com${path}`, {
-      headers: { 'User-Agent': 'node', 'Authorization': `token ${TOKEN}` }
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch(e) { reject(e); }
-      });
-    }).on('error', reject);
-  });
+async function fetchAllRepos() {
+  let repos = [];
+  let page = 1;
+  while (true) {
+    const batch = await restGet(`/users/${USERNAME}/repos?per_page=100&page=${page}&sort=updated`);
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    repos = repos.concat(batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return repos;
 }
 
-// Split into 2 smaller queries
-async function fetchData() {
-  console.log('Fetching contribution counts...');
-  const countsQuery = `query {
-    viewer {
-      login
-      contributionsCollection {
-        totalCommitContributions
-        totalPullRequestContributions
-        totalIssueContributions
-        totalPullRequestReviewContributions
-        totalRepositoryContributions
-      }
-    }
-  }`;
-  const countsData = await graphqlWithRetry(countsQuery);
+function generateStatsSVG(user, repos, calendar) {
+  const totalContribs = calendar ? calendar.totalContributions : '—';
+  const totalStars = repos.reduce((s, r) => s + (r.stargazers_count || 0), 0);
+  const totalForks = repos.reduce((s, r) => s + (r.forks_count || 0), 0);
 
-  console.log('Fetching contribution calendar...');
-  const calQuery = `query {
-    viewer {
-      contributionsCollection {
-        contributionCalendar {
-          totalContributions
-          weeks {
-            contributionDays {
-              contributionCount
-              date
-              color
-            }
-          }
-        }
-      }
-    }
-  }`;
-  const calData = await graphqlWithRetry(calQuery);
-
-  // Merge
-  return {
-    viewer: {
-      login: countsData.viewer.login,
-      contributionsCollection: {
-        ...countsData.viewer.contributionsCollection,
-        ...calData.viewer.contributionsCollection
-      }
-    }
-  };
-}
-
-// SVG generators (same as before)
-function generateStatsSVG(viewer) {
-  const coll = viewer.contributionsCollection;
   const stats = [
-    { label: 'Total Contributions', value: coll.contributionCalendar.totalContributions.toLocaleString() },
-    { label: 'Commits', value: coll.totalCommitContributions.toLocaleString() },
-    { label: 'Pull Requests', value: coll.totalPullRequestContributions.toLocaleString() },
-    { label: 'Issues', value: coll.totalIssueContributions.toLocaleString() },
-    { label: 'Code Reviews', value: coll.totalPullRequestReviewContributions.toLocaleString() },
-    { label: 'Repositories', value: coll.totalRepositoryContributions.toLocaleString() },
+    { label: 'Total Contributions', value: typeof totalContribs === 'number' ? totalContribs.toLocaleString() : totalContribs },
+    { label: 'Repositories', value: repos.length.toLocaleString() },
+    { label: 'Stars Earned', value: totalStars.toLocaleString() },
+    { label: 'Forks Created', value: totalForks.toLocaleString() },
   ];
 
   const w = 450, rowH = 30, pad = 16, headerH = 40;
@@ -130,14 +97,13 @@ function generateStatsSVG(viewer) {
   <rect width="${w}" height="${h}" rx="12" fill="#0d1117"/>
   <rect width="${w}" height="4" rx="12" fill="#58a6ff"/>
   <rect y="4" width="${w}" height="4" fill="#0d1117"/>
-  <text x="${pad}" y="${pad + 24}" fill="#c9d1d9" font-size="15" font-weight="700">${escXml(viewer.login)}'s GitHub Stats</text>`;
+  <text x="${pad}" y="${pad + 24}" fill="#c9d1d9" font-size="15" font-weight="700">${escXml(USERNAME)}'s GitHub Stats</text>`;
 
   stats.forEach((s, i) => {
     const y = pad + headerH + i * rowH;
-    const textY = y + 19;
     svg += `
-  <text x="${pad + 10}" y="${textY}" fill="#8b949e" font-size="12.5">${escXml(s.label)}</text>
-  <text x="${w - pad}" y="${textY}" fill="#58a6ff" font-size="12.5" font-weight="700" text-anchor="end">${escXml(s.value)}</text>`;
+  <text x="${pad + 10}" y="${y + 19}" fill="#8b949e" font-size="12.5">${escXml(s.label)}</text>
+  <text x="${w - pad}" y="${y + 19}" fill="#58a6ff" font-size="12.5" font-weight="700" text-anchor="end">${escXml(s.value)}</text>`;
     if (i < stats.length - 1) svg += `\n  <line x1="${pad}" y1="${y + rowH - 2}" x2="${w - pad}" y2="${y + rowH - 2}" stroke="#21262d" stroke-width="1"/>`;
   });
 
@@ -145,8 +111,12 @@ function generateStatsSVG(viewer) {
   return svg;
 }
 
-function generateStreakSVG(viewer) {
-  const weeks = viewer.contributionsCollection.contributionCalendar.weeks;
+function generateStreakSVG(calendar) {
+  if (!calendar) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="450" height="80" viewBox="0 0 450 80"><style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style><rect width="450" height="80" rx="12" fill="#0d1117"/><text x="20" y="40" fill="#8b949e" font-size="13">Could not load streak data</text></svg>`;
+  }
+
+  const weeks = calendar.weeks;
   const allDays = weeks.flatMap(w => w.contributionDays);
 
   let longestStreak = 0, streak = 0;
@@ -163,13 +133,12 @@ function generateStreakSVG(viewer) {
     else break;
   }
   const currentStreak = streak;
-  const totalContribs = viewer.contributionsCollection.contributionCalendar.totalContributions;
 
   const w = 450, pad = 16, headerH = 40;
   const items = [
     { label: 'Current Streak', value: `${currentStreak} days`, accent: '#ff6b6b' },
     { label: 'Longest Streak', value: `${longestStreak} days`, accent: '#58a6ff' },
-    { label: 'This Year', value: `${totalContribs.toLocaleString()} contributions`, accent: '#c9d1d9' },
+    { label: 'This Year', value: `${calendar.totalContributions.toLocaleString()} contributions`, accent: '#c9d1d9' },
   ];
   const h = pad + headerH + items.length * 32 + pad;
 
@@ -184,7 +153,7 @@ function generateStreakSVG(viewer) {
     const y = pad + headerH + i * 32;
     svg += `
   <text x="${pad}" y="${y + 19}" fill="${item.accent}" font-size="13" font-weight="600">${escXml(item.label)}</text>
-  <text x="${w - pad}" y="${y + 19}" fill="#c9d1d9" font-size="13" text-anchor="end" font-weight="500">${escXml(item.value)}</text>`;
+  <text x="${w - pad}" y="${y + 19}" fill="#c9d1d9" font-size="13" text-anchor="end">${escXml(item.value)}</text>`;
     if (i < items.length - 1) svg += `\n  <line x1="${pad}" y1="${y + 30}" x2="${w - pad}" y2="${y + 30}" stroke="#21262d" stroke-width="1"/>`;
   });
 
@@ -195,15 +164,18 @@ function generateStreakSVG(viewer) {
 function generateTopLangsSVG(repos) {
   const langColors = {
     'Java': '#b07219', 'Python': '#3572A5', 'JavaScript': '#f1e05a', 'TypeScript': '#3178c6',
-    'CSS': '#563d7c', 'HTML': '#e34c26', 'Shell': '#89e051', 'Dockerfile': '#384d54',
-    'SQL': '#e38c00', 'Rust': '#dea584', 'Go': '#00ADD8', 'Kotlin': '#A97BFF',
-    'Ruby': '#701516', 'C++': '#f34b7d', 'C': '#555555', 'PHP': '#4F5D95',
-    'Swift': '#F05138', 'Dart': '#00B4AB', 'Scala': '#c22d40', 'Vue': '#41b883'
+    'CSS': '#563d7c', 'HTML': '#e34c26', 'Shell': '#89e051', 'SQL': '#e38c00',
+    'Rust': '#dea584', 'Go': '#00ADD8', 'Kotlin': '#A97BFF', 'Ruby': '#701516',
+    'C++': '#f34b7d', 'C': '#555555', 'PHP': '#4F5D95', 'Swift': '#F05138',
+    'Dart': '#00B4AB', 'Scala': '#c22d40', 'Vue': '#41b883', 'Dockerfile': '#384d54'
   };
 
   const langBytes = {};
   repos.forEach(r => { if (r.language && r.size) langBytes[r.language] = (langBytes[r.language] || 0) + r.size; });
   const sorted = Object.entries(langBytes).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  if (!sorted.length) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="450" height="80" viewBox="0 0 450 80"><style>text{font-family:sans-serif}</style><rect width="450" height="80" rx="12" fill="#0d1117"/><text x="20" y="40" fill="#8b949e" font-size="13">No language data</text></svg>`;
+  }
   const total = sorted.reduce((s, [, v]) => s + v, 0) || 1;
 
   const w = 450, pad = 16, headerH = 40, barH = 10, rowH = 28;
@@ -219,9 +191,8 @@ function generateTopLangsSVG(repos) {
   sorted.forEach(([lang, bytes], i) => {
     const y = pad + headerH + i * rowH;
     const pct = ((bytes / total) * 100).toFixed(1);
-    const c = langColors[lang] || '#8b949e';
     svg += `
-  <circle cx="${pad + 6}" cy="${y + 9}" r="5" fill="${c}"/>
+  <circle cx="${pad + 6}" cy="${y + 9}" r="5" fill="${langColors[lang] || '#8b949e'}"/>
   <text x="${pad + 18}" y="${y + 13}" fill="#c9d1d9" font-size="12">${escXml(lang)}</text>
   <text x="${w - pad}" y="${y + 13}" fill="#8b949e" font-size="12" text-anchor="end">${pct}%</text>`;
   });
@@ -239,24 +210,26 @@ function generateTopLangsSVG(repos) {
   return svg;
 }
 
-function generateActivityGraphSVG(viewer) {
-  const weeks = viewer.contributionsCollection.contributionCalendar.weeks;
+function generateActivityGraphSVG(calendar) {
+  if (!calendar) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="450" height="80" viewBox="0 0 450 80"><style>text{font-family:sans-serif}</style><rect width="450" height="80" rx="12" fill="#0d1117"/><text x="20" y="40" fill="#8b949e" font-size="13">Could not load activity data</text></svg>`;
+  }
+
+  const weeks = calendar.weeks;
   const lastN = Math.min(weeks.length, 20);
   const recentWeeks = weeks.slice(-lastN);
-  const totalContribs = viewer.contributionsCollection.contributionCalendar.totalContributions;
 
   const cellSize = 11, gap = 3, pad = 16, headerH = 40;
   const offsetY = pad + headerH;
   const gridH = 7 * (cellSize + gap);
   const w = Math.max(lastN * (cellSize + gap) + pad * 2 + 30, 450);
   const h = offsetY + gridH + 30;
-
   const dayLabels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
   <style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style>
   <rect width="${w}" height="${h}" rx="12" fill="#0d1117"/>
-  <text x="${pad}" y="${pad + 20}" fill="#c9d1d9" font-size="15" font-weight="700">${totalContribs.toLocaleString()} contributions in the last year</text>`;
+  <text x="${pad}" y="${pad + 20}" fill="#c9d1d9" font-size="15" font-weight="700">${calendar.totalContributions.toLocaleString()} contributions in the last year</text>`;
 
   dayLabels.forEach((label, i) => {
     if (label) svg += `\n  <text x="${pad}" y="${offsetY + i * (cellSize + gap) + cellSize}" fill="#8b949e" font-size="9" text-anchor="end">${label}</text>`;
@@ -281,23 +254,32 @@ function generateActivityGraphSVG(viewer) {
 }
 
 async function main() {
-  console.log('Fetching data...');
-  const data = await fetchData();
-  const viewer = data.viewer;
-  console.log(`User: ${viewer.login}, Total: ${viewer.contributionsCollection.contributionCalendar.totalContributions}`);
+  console.log('Fetching user data...');
+  const user = await restGet(`/users/${USERNAME}`);
+  console.log(`User: ${user.name || user.login}, Public repos: ${user.public_repos}`);
 
-  console.log('Fetching repos for languages...');
-  const repos = await restGet(`/users/${USERNAME}/repos?per_page=100&sort=updated`);
+  console.log('Fetching repos...');
+  const repos = await fetchAllRepos();
+  console.log(`Found ${repos.length} repos`);
+
+  console.log('Fetching contribution calendar...');
+  const calendar = await fetchCalendar();
+  if (calendar) console.log(`Total contributions: ${calendar.totalContributions}`);
+  else console.log('Calendar unavailable, using REST fallback');
 
   console.log('\nGenerating SVGs...');
-  fs.writeFileSync('stats.svg', generateStatsSVG(viewer));
+  fs.writeFileSync('stats.svg', generateStatsSVG(user, repos, calendar));
   console.log('✓ stats.svg');
-  fs.writeFileSync('streak.svg', generateStreakSVG(viewer));
+
+  fs.writeFileSync('streak.svg', generateStreakSVG(calendar));
   console.log('✓ streak.svg');
+
   fs.writeFileSync('top-langs.svg', generateTopLangsSVG(repos));
   console.log('✓ top-langs.svg');
-  fs.writeFileSync('activity-graph.svg', generateActivityGraphSVG(viewer));
+
+  fs.writeFileSync('activity-graph.svg', generateActivityGraphSVG(calendar));
   console.log('✓ activity-graph.svg');
+
   console.log('\nAll SVGs generated!');
 }
 
