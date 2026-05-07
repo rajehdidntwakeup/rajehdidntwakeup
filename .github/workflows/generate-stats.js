@@ -1,6 +1,5 @@
 const https = require('https');
 const fs = require('fs');
-const { execSync } = require('child_process');
 
 const TOKEN = process.env.GH_TOKEN;
 const USERNAME = process.env.GITHUB_USERNAME || 'rajehdidntwakeup';
@@ -37,14 +36,21 @@ function graphql(query) {
   });
 }
 
-async function fetchContributionData() {
-  const query = `query { viewer { login contributionsCollection { totalCommitContributions totalPullRequestContributions totalIssueContributions totalPullRequestReviewContributions totalRepositoryContributions contributionCalendar { totalContributions weeks { contributionDays { contributionCount date color } } } } } }`;
-  return graphql(query);
+async function graphqlWithRetry(query, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await graphql(query);
+    } catch (e) {
+      console.log(`Attempt ${i + 1} failed: ${e.message.slice(0, 100)}`);
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 3000 * (i + 1)));
+      else throw e;
+    }
+  }
 }
 
-async function fetchLanguages() {
+function restGet(path) {
   return new Promise((resolve, reject) => {
-    https.get(`https://api.github.com/users/${USERNAME}/repos?per_page=100&sort=updated`, {
+    https.get(`https://api.github.com${path}`, {
       headers: { 'User-Agent': 'node', 'Authorization': `token ${TOKEN}` }
     }, (res) => {
       let data = '';
@@ -56,7 +62,55 @@ async function fetchLanguages() {
   });
 }
 
-// ===== STATS SVG =====
+// Split into 2 smaller queries
+async function fetchData() {
+  console.log('Fetching contribution counts...');
+  const countsQuery = `query {
+    viewer {
+      login
+      contributionsCollection {
+        totalCommitContributions
+        totalPullRequestContributions
+        totalIssueContributions
+        totalPullRequestReviewContributions
+        totalRepositoryContributions
+      }
+    }
+  }`;
+  const countsData = await graphqlWithRetry(countsQuery);
+
+  console.log('Fetching contribution calendar...');
+  const calQuery = `query {
+    viewer {
+      contributionsCollection {
+        contributionCalendar {
+          totalContributions
+          weeks {
+            contributionDays {
+              contributionCount
+              date
+              color
+            }
+          }
+        }
+      }
+    }
+  }`;
+  const calData = await graphqlWithRetry(calQuery);
+
+  // Merge
+  return {
+    viewer: {
+      login: countsData.viewer.login,
+      contributionsCollection: {
+        ...countsData.viewer.contributionsCollection,
+        ...calData.viewer.contributionsCollection
+      }
+    }
+  };
+}
+
+// SVG generators (same as before)
 function generateStatsSVG(viewer) {
   const coll = viewer.contributionsCollection;
   const stats = [
@@ -84,29 +138,21 @@ function generateStatsSVG(viewer) {
     svg += `
   <text x="${pad + 10}" y="${textY}" fill="#8b949e" font-size="12.5">${escXml(s.label)}</text>
   <text x="${w - pad}" y="${textY}" fill="#58a6ff" font-size="12.5" font-weight="700" text-anchor="end">${escXml(s.value)}</text>`;
-    if (i < stats.length - 1) {
-      svg += `\n  <line x1="${pad}" y1="${y + rowH - 2}" x2="${w - pad}" y2="${y + rowH - 2}" stroke="#21262d" stroke-width="1"/>`;
-    }
+    if (i < stats.length - 1) svg += `\n  <line x1="${pad}" y1="${y + rowH - 2}" x2="${w - pad}" y2="${y + rowH - 2}" stroke="#21262d" stroke-width="1"/>`;
   });
 
   svg += `\n</svg>`;
   return svg;
 }
 
-// ===== STREAK SVG =====
 function generateStreakSVG(viewer) {
   const weeks = viewer.contributionsCollection.contributionCalendar.weeks;
   const allDays = weeks.flatMap(w => w.contributionDays);
 
-  let currentStreak = 0, longestStreak = 0, streak = 0;
-
+  let longestStreak = 0, streak = 0;
   for (let i = allDays.length - 1; i >= 0; i--) {
-    if (allDays[i].contributionCount > 0) {
-      streak++;
-      longestStreak = Math.max(longestStreak, streak);
-    } else {
-      streak = 0;
-    }
+    if (allDays[i].contributionCount > 0) { streak++; longestStreak = Math.max(longestStreak, streak); }
+    else streak = 0;
   }
 
   streak = 0;
@@ -116,8 +162,7 @@ function generateStreakSVG(viewer) {
     else if (allDays[i].date === today) continue;
     else break;
   }
-  currentStreak = streak;
-
+  const currentStreak = streak;
   const totalContribs = viewer.contributionsCollection.contributionCalendar.totalContributions;
 
   const w = 450, pad = 16, headerH = 40;
@@ -137,20 +182,16 @@ function generateStreakSVG(viewer) {
 
   items.forEach((item, i) => {
     const y = pad + headerH + i * 32;
-    const textY = y + 19;
     svg += `
-  <text x="${pad}" y="${textY}" fill="${item.accent}" font-size="13" font-weight="600">${escXml(item.label)}</text>
-  <text x="${w - pad}" y="${textY}" fill="#c9d1d9" font-size="13" text-anchor="end" font-weight="500">${escXml(item.value)}</text>`;
-    if (i < items.length - 1) {
-      svg += `\n  <line x1="${pad}" y1="${y + 30}" x2="${w - pad}" y2="${y + 30}" stroke="#21262d" stroke-width="1"/>`;
-    }
+  <text x="${pad}" y="${y + 19}" fill="${item.accent}" font-size="13" font-weight="600">${escXml(item.label)}</text>
+  <text x="${w - pad}" y="${y + 19}" fill="#c9d1d9" font-size="13" text-anchor="end" font-weight="500">${escXml(item.value)}</text>`;
+    if (i < items.length - 1) svg += `\n  <line x1="${pad}" y1="${y + 30}" x2="${w - pad}" y2="${y + 30}" stroke="#21262d" stroke-width="1"/>`;
   });
 
   svg += `\n</svg>`;
   return svg;
 }
 
-// ===== TOP LANGUAGES SVG =====
 function generateTopLangsSVG(repos) {
   const langColors = {
     'Java': '#b07219', 'Python': '#3572A5', 'JavaScript': '#f1e05a', 'TypeScript': '#3178c6',
@@ -165,8 +206,7 @@ function generateTopLangsSVG(repos) {
   const sorted = Object.entries(langBytes).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const total = sorted.reduce((s, [, v]) => s + v, 0) || 1;
 
-  const w = 450, pad = 16, headerH = 40, barH = 10;
-  const rowH = 28;
+  const w = 450, pad = 16, headerH = 40, barH = 10, rowH = 28;
   const h = pad + headerH + sorted.length * rowH + barH + 20 + pad;
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
@@ -186,15 +226,12 @@ function generateTopLangsSVG(repos) {
   <text x="${w - pad}" y="${y + 13}" fill="#8b949e" font-size="12" text-anchor="end">${pct}%</text>`;
   });
 
-  // Progress bar
   const barY = pad + headerH + sorted.length * rowH + 10;
   let barX = pad;
   const barWidth = w - pad * 2;
   sorted.forEach(([lang, bytes]) => {
-    const pct = bytes / total;
-    const segW = Math.max(2, barWidth * pct);
-    const c = langColors[lang] || '#8b949e';
-    svg += `\n  <rect x="${barX.toFixed(1)}" y="${barY}" width="${segW.toFixed(1)}" height="${barH}" rx="5" fill="${c}"/>`;
+    const segW = Math.max(2, barWidth * (bytes / total));
+    svg += `\n  <rect x="${barX.toFixed(1)}" y="${barY}" width="${segW.toFixed(1)}" height="${barH}" rx="5" fill="${langColors[lang] || '#8b949e'}"/>`;
     barX += segW;
   });
 
@@ -202,19 +239,16 @@ function generateTopLangsSVG(repos) {
   return svg;
 }
 
-// ===== ACTIVITY GRAPH SVG =====
 function generateActivityGraphSVG(viewer) {
   const weeks = viewer.contributionsCollection.contributionCalendar.weeks;
   const lastN = Math.min(weeks.length, 20);
   const recentWeeks = weeks.slice(-lastN);
   const totalContribs = viewer.contributionsCollection.contributionCalendar.totalContributions;
 
-  const cellSize = 11, gap = 3;
-  const pad = 16, headerH = 40;
+  const cellSize = 11, gap = 3, pad = 16, headerH = 40;
   const offsetY = pad + headerH;
-  const gridW = lastN * (cellSize + gap);
   const gridH = 7 * (cellSize + gap);
-  const w = Math.max(gridW + pad * 2 + 30, 450);
+  const w = Math.max(lastN * (cellSize + gap) + pad * 2 + 30, 450);
   const h = offsetY + gridH + 30;
 
   const dayLabels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
@@ -225,21 +259,15 @@ function generateActivityGraphSVG(viewer) {
   <text x="${pad}" y="${pad + 20}" fill="#c9d1d9" font-size="15" font-weight="700">${totalContribs.toLocaleString()} contributions in the last year</text>`;
 
   dayLabels.forEach((label, i) => {
-    if (label) {
-      const y = offsetY + i * (cellSize + gap) + cellSize;
-      svg += `\n  <text x="${pad}" y="${y}" fill="#8b949e" font-size="9" text-anchor="end">${label}</text>`;
-    }
+    if (label) svg += `\n  <text x="${pad}" y="${offsetY + i * (cellSize + gap) + cellSize}" fill="#8b949e" font-size="9" text-anchor="end">${label}</text>`;
   });
 
   recentWeeks.forEach((week, wk) => {
     week.contributionDays.forEach((day, dy) => {
-      const x = pad + 30 + wk * (cellSize + gap);
-      const y = offsetY + dy * (cellSize + gap);
-      svg += `\n  <rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" rx="2" fill="${day.color}"/>`;
+      svg += `\n  <rect x="${pad + 30 + wk * (cellSize + gap)}" y="${offsetY + dy * (cellSize + gap)}" width="${cellSize}" height="${cellSize}" rx="2" fill="${day.color}"/>`;
     });
   });
 
-  // Legend
   const legendY = offsetY + gridH + 18;
   const legendX = w - pad - 120;
   svg += `\n  <text x="${legendX}" y="${legendY}" fill="#8b949e" font-size="10">Less</text>`;
@@ -252,32 +280,25 @@ function generateActivityGraphSVG(viewer) {
   return svg;
 }
 
-// ===== MAIN =====
 async function main() {
-  console.log('Fetching contribution data via GraphQL...');
-  const data = await fetchContributionData();
+  console.log('Fetching data...');
+  const data = await fetchData();
   const viewer = data.viewer;
   console.log(`User: ${viewer.login}, Total: ${viewer.contributionsCollection.contributionCalendar.totalContributions}`);
 
   console.log('Fetching repos for languages...');
-  const repos = await fetchLanguages();
-  console.log(`Found ${repos.length} repos`);
+  const repos = await restGet(`/users/${USERNAME}/repos?per_page=100&sort=updated`);
 
   console.log('\nGenerating SVGs...');
-
   fs.writeFileSync('stats.svg', generateStatsSVG(viewer));
   console.log('✓ stats.svg');
-
   fs.writeFileSync('streak.svg', generateStreakSVG(viewer));
   console.log('✓ streak.svg');
-
   fs.writeFileSync('top-langs.svg', generateTopLangsSVG(repos));
   console.log('✓ top-langs.svg');
-
   fs.writeFileSync('activity-graph.svg', generateActivityGraphSVG(viewer));
   console.log('✓ activity-graph.svg');
-
-  console.log('\nAll SVGs generated successfully!');
+  console.log('\nAll SVGs generated!');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
