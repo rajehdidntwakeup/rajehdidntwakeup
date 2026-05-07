@@ -13,9 +13,7 @@ function restGet(path) {
     }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch(e) { reject(e); }
-      });
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
     });
     req.on('error', reject);
   });
@@ -25,25 +23,12 @@ function graphql(query) {
   const body = JSON.stringify({ query });
   return new Promise((resolve, reject) => {
     const req = https.request({
-      hostname: 'api.github.com',
-      path: '/graphql',
-      method: 'POST',
-      headers: {
-        'Authorization': `bearer ${TOKEN}`,
-        'User-Agent': 'node',
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body)
-      }
+      hostname: 'api.github.com', path: '/graphql', method: 'POST',
+      headers: { 'Authorization': `bearer ${TOKEN}`, 'User-Agent': 'node', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
     }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.errors) reject(new Error(JSON.stringify(parsed.errors)));
-          else resolve(parsed.data);
-        } catch (e) { reject(e); }
-      });
+      res.on('end', () => { try { const p = JSON.parse(data); if (p.errors) reject(p.errors); else resolve(p.data); } catch(e) { reject(e); } });
     });
     req.on('error', reject);
     req.write(body);
@@ -51,22 +36,18 @@ function graphql(query) {
   });
 }
 
-// Try GraphQL calendar, fall back to REST-only
 async function fetchCalendar() {
   try {
-    // Minimal calendar-only query
-    const calQuery = `query { user(login:"${USERNAME}") { contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { contributionCount date color } } } } } }`;
-    const data = await graphql(calQuery);
+    const data = await graphql(`query { user(login:"${USERNAME}") { contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { contributionCount date color } } } } } }`);
     return data.user.contributionsCollection.contributionCalendar;
   } catch (e) {
-    console.log('GraphQL calendar failed, using REST events fallback');
+    console.log('GraphQL calendar failed, will use REST-only stats');
     return null;
   }
 }
 
 async function fetchAllRepos() {
-  let repos = [];
-  let page = 1;
+  let repos = [], page = 1;
   while (true) {
     const batch = await restGet(`/users/${USERNAME}/repos?per_page=100&page=${page}&sort=updated`);
     if (!Array.isArray(batch) || batch.length === 0) break;
@@ -77,44 +58,48 @@ async function fetchAllRepos() {
   return repos;
 }
 
+// ===== STATS SVG — GitHub-style card =====
 function generateStatsSVG(user, repos, calendar) {
-  const totalContribs = calendar ? calendar.totalContributions : '—';
+  const totalContribs = calendar ? calendar.totalContributions : user.public_repos;
   const totalStars = repos.reduce((s, r) => s + (r.stargazers_count || 0), 0);
   const totalForks = repos.reduce((s, r) => s + (r.forks_count || 0), 0);
 
-  const stats = [
-    { label: 'Total Contributions', value: typeof totalContribs === 'number' ? totalContribs.toLocaleString() : totalContribs },
-    { label: 'Repositories', value: repos.length.toLocaleString() },
-    { label: 'Stars Earned', value: totalStars.toLocaleString() },
-    { label: 'Forks Created', value: totalForks.toLocaleString() },
+  const w = 495, pad = 20, iconSize = 16;
+  const headerH = 44, rowH = 34;
+  const rows = [
+    { icon: '⭐', label: 'Total Stars', value: totalStars.toLocaleString() },
+    { icon: '📦', label: 'Total Repos', value: repos.length.toLocaleString() },
+    { icon: '🍴', label: 'Total Forks', value: totalForks.toLocaleString() },
+    { icon: '🔥', label: 'Contributions', value: typeof totalContribs === 'number' ? totalContribs.toLocaleString() : totalContribs },
   ];
-
-  const w = 450, rowH = 30, pad = 16, headerH = 40;
-  const h = pad + headerH + stats.length * rowH + pad;
+  const h = pad + headerH + rows.length * rowH + pad;
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style>
-  <rect width="${w}" height="${h}" rx="12" fill="#0d1117"/>
-  <rect width="${w}" height="4" rx="12" fill="#58a6ff"/>
-  <rect y="4" width="${w}" height="4" fill="#0d1117"/>
-  <text x="${pad}" y="${pad + 24}" fill="#c9d1d9" font-size="15" font-weight="700">${escXml(USERNAME)}'s GitHub Stats</text>`;
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif }
+    .header { fill: #c9d1d9; font-size: 16px; font-weight: 700 }
+    .label { fill: #8b949e; font-size: 13px }
+    .value { fill: #c9d1d9; font-size: 13px; font-weight: 600; text-anchor: end }
+  </style>
+  <rect width="${w}" height="${h}" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="${pad}" y="${pad + 26}" class="header">${escXml(USERNAME)}'s GitHub Stats</text>
+  <line x1="${pad}" y1="${pad + headerH - 6}" x2="${w - pad}" y2="${pad + headerH - 6}" stroke="#21262d" stroke-width="1"/>`;
 
-  stats.forEach((s, i) => {
+  rows.forEach((r, i) => {
     const y = pad + headerH + i * rowH;
     svg += `
-  <text x="${pad + 10}" y="${y + 19}" fill="#8b949e" font-size="12.5">${escXml(s.label)}</text>
-  <text x="${w - pad}" y="${y + 19}" fill="#58a6ff" font-size="12.5" font-weight="700" text-anchor="end">${escXml(s.value)}</text>`;
-    if (i < stats.length - 1) svg += `\n  <line x1="${pad}" y1="${y + rowH - 2}" x2="${w - pad}" y2="${y + rowH - 2}" stroke="#21262d" stroke-width="1"/>`;
+  <text x="${pad}" y="${y + 20}" class="label">${r.icon} ${escXml(r.label)}</text>
+  <text x="${w - pad}" y="${y + 20}" class="value">${escXml(String(r.value))}</text>`;
+    if (i < rows.length - 1) svg += `\n  <line x1="${pad}" y1="${y + rowH}" x2="${w - pad}" y2="${y + rowH}" stroke="#21262d" stroke-width="0.5"/>`;
   });
 
   svg += `\n</svg>`;
   return svg;
 }
 
+// ===== STREAK SVG =====
 function generateStreakSVG(calendar) {
-  if (!calendar) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="450" height="80" viewBox="0 0 450 80"><style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style><rect width="450" height="80" rx="12" fill="#0d1117"/><text x="20" y="40" fill="#8b949e" font-size="13">Could not load streak data</text></svg>`;
-  }
+  if (!calendar) return `<svg xmlns="http://www.w3.org/2000/svg" width="495" height="60"><rect width="495" height="60" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1"/><text x="20" y="35" fill="#8b949e" font-size="13" font-family="sans-serif">Streak data unavailable</text></svg>`;
 
   const weeks = calendar.weeks;
   const allDays = weeks.flatMap(w => w.contributionDays);
@@ -134,33 +119,31 @@ function generateStreakSVG(calendar) {
   }
   const currentStreak = streak;
 
-  const w = 450, pad = 16, headerH = 40;
+  const w = 495, pad = 20, headerH = 44;
   const items = [
-    { label: 'Current Streak', value: `${currentStreak} days`, accent: '#ff6b6b' },
-    { label: 'Longest Streak', value: `${longestStreak} days`, accent: '#58a6ff' },
-    { label: 'This Year', value: `${calendar.totalContributions.toLocaleString()} contributions`, accent: '#c9d1d9' },
+    { label: '🔥 Current Streak', value: `${currentStreak} days` },
+    { label: '⚡ Longest Streak', value: `${longestStreak} days` },
   ];
-  const h = pad + headerH + items.length * 32 + pad;
+  const h = pad + headerH + items.length * 30 + pad;
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style>
-  <rect width="${w}" height="${h}" rx="12" fill="#0d1117"/>
-  <rect width="${w}" height="4" rx="12" fill="#ff6b6b"/>
-  <rect y="4" width="${w}" height="4" fill="#0d1117"/>
-  <text x="${pad}" y="${pad + 24}" fill="#c9d1d9" font-size="15" font-weight="700">🔥 Streak Stats</text>`;
+  <style>text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif }</style>
+  <rect width="${w}" height="${h}" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="${pad}" y="${pad + 26}" fill="#c9d1d9" font-size="16" font-weight="700">🔥 Streak Stats</text>
+  <line x1="${pad}" y1="${pad + headerH - 6}" x2="${w - pad}" y2="${pad + headerH - 6}" stroke="#21262d" stroke-width="1"/>`;
 
   items.forEach((item, i) => {
-    const y = pad + headerH + i * 32;
+    const y = pad + headerH + i * 30;
     svg += `
-  <text x="${pad}" y="${y + 19}" fill="${item.accent}" font-size="13" font-weight="600">${escXml(item.label)}</text>
-  <text x="${w - pad}" y="${y + 19}" fill="#c9d1d9" font-size="13" text-anchor="end">${escXml(item.value)}</text>`;
-    if (i < items.length - 1) svg += `\n  <line x1="${pad}" y1="${y + 30}" x2="${w - pad}" y2="${y + 30}" stroke="#21262d" stroke-width="1"/>`;
+  <text x="${pad}" y="${y + 20}" fill="#8b949e" font-size="13">${escXml(item.label)}</text>
+  <text x="${w - pad}" y="${y + 20}" fill="#c9d1d9" font-size="13" font-weight="600" text-anchor="end">${escXml(item.value)}</text>`;
   });
 
   svg += `\n</svg>`;
   return svg;
 }
 
+// ===== TOP LANGUAGES SVG =====
 function generateTopLangsSVG(repos) {
   const langColors = {
     'Java': '#b07219', 'Python': '#3572A5', 'JavaScript': '#f1e05a', 'TypeScript': '#3178c6',
@@ -173,35 +156,34 @@ function generateTopLangsSVG(repos) {
   const langBytes = {};
   repos.forEach(r => { if (r.language && r.size) langBytes[r.language] = (langBytes[r.language] || 0) + r.size; });
   const sorted = Object.entries(langBytes).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  if (!sorted.length) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="450" height="80" viewBox="0 0 450 80"><style>text{font-family:sans-serif}</style><rect width="450" height="80" rx="12" fill="#0d1117"/><text x="20" y="40" fill="#8b949e" font-size="13">No language data</text></svg>`;
-  }
+  if (!sorted.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="495" height="60"><rect width="495" height="60" rx="12" fill="#0d1117" stroke="#30363d"/><text x="20" y="35" fill="#8b949e" font-size="13" font-family="sans-serif">No language data</text></svg>`;
   const total = sorted.reduce((s, [, v]) => s + v, 0) || 1;
 
-  const w = 450, pad = 16, headerH = 40, barH = 10, rowH = 28;
-  const h = pad + headerH + sorted.length * rowH + barH + 20 + pad;
+  const w = 495, pad = 20, headerH = 44, rowH = 26, barH = 10;
+  const h = pad + headerH + sorted.length * rowH + barH + 14 + pad;
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style>
-  <rect width="${w}" height="${h}" rx="12" fill="#0d1117"/>
-  <rect width="${w}" height="4" rx="12" fill="#58a6ff"/>
-  <rect y="4" width="${w}" height="4" fill="#0d1117"/>
-  <text x="${pad}" y="${pad + 24}" fill="#c9d1d9" font-size="15" font-weight="700">Most Used Languages</text>`;
+  <style>text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif }</style>
+  <rect width="${w}" height="${h}" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="${pad}" y="${pad + 26}" fill="#c9d1d9" font-size="16" font-weight="700">Most Used Languages</text>
+  <line x1="${pad}" y1="${pad + headerH - 6}" x2="${w - pad}" y2="${pad + headerH - 6}" stroke="#21262d" stroke-width="1"/>`;
 
   sorted.forEach(([lang, bytes], i) => {
     const y = pad + headerH + i * rowH;
     const pct = ((bytes / total) * 100).toFixed(1);
+    const c = langColors[lang] || '#8b949e';
     svg += `
-  <circle cx="${pad + 6}" cy="${y + 9}" r="5" fill="${langColors[lang] || '#8b949e'}"/>
+  <circle cx="${pad + 6}" cy="${y + 9}" r="5" fill="${c}"/>
   <text x="${pad + 18}" y="${y + 13}" fill="#c9d1d9" font-size="12">${escXml(lang)}</text>
   <text x="${w - pad}" y="${y + 13}" fill="#8b949e" font-size="12" text-anchor="end">${pct}%</text>`;
   });
 
-  const barY = pad + headerH + sorted.length * rowH + 10;
+  // Combined progress bar
+  const barY = pad + headerH + sorted.length * rowH + 8;
   let barX = pad;
   const barWidth = w - pad * 2;
   sorted.forEach(([lang, bytes]) => {
-    const segW = Math.max(2, barWidth * (bytes / total));
+    const segW = Math.max(1, barWidth * (bytes / total));
     svg += `\n  <rect x="${barX.toFixed(1)}" y="${barY}" width="${segW.toFixed(1)}" height="${barH}" rx="5" fill="${langColors[lang] || '#8b949e'}"/>`;
     barX += segW;
   });
@@ -210,29 +192,28 @@ function generateTopLangsSVG(repos) {
   return svg;
 }
 
+// ===== ACTIVITY GRAPH =====
 function generateActivityGraphSVG(calendar) {
-  if (!calendar) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="450" height="80" viewBox="0 0 450 80"><style>text{font-family:sans-serif}</style><rect width="450" height="80" rx="12" fill="#0d1117"/><text x="20" y="40" fill="#8b949e" font-size="13">Could not load activity data</text></svg>`;
-  }
+  if (!calendar) return `<svg xmlns="http://www.w3.org/2000/svg" width="495" height="60"><rect width="495" height="60" rx="12" fill="#0d1117" stroke="#30363d"/><text x="20" y="35" fill="#8b949e" font-size="13" font-family="sans-serif">Activity data unavailable</text></svg>`;
 
   const weeks = calendar.weeks;
   const lastN = Math.min(weeks.length, 20);
   const recentWeeks = weeks.slice(-lastN);
 
-  const cellSize = 11, gap = 3, pad = 16, headerH = 40;
+  const cellSize = 12, gap = 3, pad = 20, headerH = 38;
   const offsetY = pad + headerH;
   const gridH = 7 * (cellSize + gap);
-  const w = Math.max(lastN * (cellSize + gap) + pad * 2 + 30, 450);
-  const h = offsetY + gridH + 30;
-  const dayLabels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+  const w = Math.max(lastN * (cellSize + gap) + pad * 2 + 32, 495);
+  const h = offsetY + gridH + 28;
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}</style>
-  <rect width="${w}" height="${h}" rx="12" fill="#0d1117"/>
-  <text x="${pad}" y="${pad + 20}" fill="#c9d1d9" font-size="15" font-weight="700">${calendar.totalContributions.toLocaleString()} contributions in the last year</text>`;
+  <style>text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif }</style>
+  <rect width="${w}" height="${h}" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="${pad}" y="${pad + 20}" fill="#c9d1d9" font-size="14" font-weight="700">${calendar.totalContributions.toLocaleString()} contributions in the last year</text>`;
 
-  dayLabels.forEach((label, i) => {
-    if (label) svg += `\n  <text x="${pad}" y="${offsetY + i * (cellSize + gap) + cellSize}" fill="#8b949e" font-size="9" text-anchor="end">${label}</text>`;
+  ['Mon', 'Wed', 'Fri'].forEach((label, idx) => {
+    const i = [1, 3, 5][idx];
+    svg += `\n  <text x="${pad}" y="${offsetY + i * (cellSize + gap) + cellSize}" fill="#8b949e" font-size="9" text-anchor="end">${label}</text>`;
   });
 
   recentWeeks.forEach((week, wk) => {
@@ -242,12 +223,12 @@ function generateActivityGraphSVG(calendar) {
   });
 
   const legendY = offsetY + gridH + 18;
-  const legendX = w - pad - 120;
+  const legendX = w - pad - 130;
   svg += `\n  <text x="${legendX}" y="${legendY}" fill="#8b949e" font-size="10">Less</text>`;
   ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'].forEach((c, i) => {
-    svg += `\n  <rect x="${legendX + 28 + i * 15}" y="${legendY - 9}" width="11" height="11" rx="2" fill="${c}"/>`;
+    svg += `\n  <rect x="${legendX + 30 + i * 16}" y="${legendY - 10}" width="12" height="12" rx="2" fill="${c}"/>`;
   });
-  svg += `\n  <text x="${legendX + 28 + 5 * 15 + 4}" y="${legendY}" fill="#8b949e" font-size="10">More</text>`;
+  svg += `\n  <text x="${legendX + 30 + 5 * 16 + 4}" y="${legendY}" fill="#8b949e" font-size="10">More</text>`;
 
   svg += `\n</svg>`;
   return svg;
@@ -256,7 +237,7 @@ function generateActivityGraphSVG(calendar) {
 async function main() {
   console.log('Fetching user data...');
   const user = await restGet(`/users/${USERNAME}`);
-  console.log(`User: ${user.name || user.login}, Public repos: ${user.public_repos}`);
+  console.log(`User: ${user.login}, Public repos: ${user.public_repos}`);
 
   console.log('Fetching repos...');
   const repos = await fetchAllRepos();
@@ -265,19 +246,25 @@ async function main() {
   console.log('Fetching contribution calendar...');
   const calendar = await fetchCalendar();
   if (calendar) console.log(`Total contributions: ${calendar.totalContributions}`);
-  else console.log('Calendar unavailable, using REST fallback');
+
+  // Ensure dist dir exists for snake workflow
+  if (!fs.existsSync('dist')) fs.mkdirSync('dist');
 
   console.log('\nGenerating SVGs...');
   fs.writeFileSync('stats.svg', generateStatsSVG(user, repos, calendar));
+  fs.writeFileSync('dist/stats.svg', generateStatsSVG(user, repos, calendar));
   console.log('✓ stats.svg');
 
   fs.writeFileSync('streak.svg', generateStreakSVG(calendar));
+  fs.writeFileSync('dist/streak.svg', generateStreakSVG(calendar));
   console.log('✓ streak.svg');
 
   fs.writeFileSync('top-langs.svg', generateTopLangsSVG(repos));
+  fs.writeFileSync('dist/top-langs.svg', generateTopLangsSVG(repos));
   console.log('✓ top-langs.svg');
 
   fs.writeFileSync('activity-graph.svg', generateActivityGraphSVG(calendar));
+  fs.writeFileSync('dist/activity-graph.svg', generateActivityGraphSVG(calendar));
   console.log('✓ activity-graph.svg');
 
   console.log('\nAll SVGs generated!');

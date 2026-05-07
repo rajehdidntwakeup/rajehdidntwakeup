@@ -36,13 +36,16 @@
 ### 📊 GitHub Stats
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/stats.svg" alt="GitHub Stats" height="170" />
-  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/streak.svg" alt="GitHub Streak" height="170" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/stats.svg" alt="GitHub Stats" />
 </div>
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/top-langs.svg" alt="Top Languages" height="170" />
-  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/activity-graph.svg" alt="Activity Graph" height="170" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/streak.svg" alt="GitHub Streak" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/top-langs.svg" alt="Top Languages" />
+</div>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/activity-graph.svg" alt="Activity Graph" />
 </div>
 
 ---
