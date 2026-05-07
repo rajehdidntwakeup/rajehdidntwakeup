@@ -36,13 +36,13 @@
 ### 📊 GitHub Stats
 
 <div align="center">
-  <img src="https://github-readme-stats.vercel.app/api?username=rajehdidntwakeup&show_icons=true&theme=radical&hide_border=true&bg_color=0d1117&title_color=58a6ff&icon_color=58a6ff&text_color=c9d1d9" alt="GitHub Stats" height="170" />
-  <img src="https://github-readme-streak-stats.demolab.com?user=rajehdidntwakeup&theme=radical&hide_border=true&background=0d1117&ring=58a6ff&fire=ff6b6b&currLabel=58a6ff&sideLabels=c9d1d9&dates=c9d1d9" alt="GitHub Streak" height="170" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/stats.svg" alt="GitHub Stats" height="170" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/streak.svg" alt="GitHub Streak" height="170" />
 </div>
 
 <div align="center">
-  <img src="https://github-readme-stats.vercel.app/api/top-langs/?username=rajehdidntwakeup&layout=compact&theme=radical&hide_border=true&bg_color=0d1117&title_color=58a6ff&text_color=c9d1d9" alt="Top Languages" height="170" />
-  <img src="https://github-readme-activity-graph.vercel.app/graph?username=rajehdidntwakeup&theme=react-dark&hide_border=true&bg_color=0d1117&color=58a6ff&line=58a6ff&point=ff6b6b" alt="Activity Graph" height="170" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/top-langs.svg" alt="Top Languages" height="170" />
+  <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/activity-graph.svg" alt="Activity Graph" height="170" />
 </div>
 
 ---
@@ -59,38 +59,11 @@
 
 ### 🛠️ Tech Stack
 
-<table>
-  <tr>
-    <td align="center"><strong>Languages</strong></td>
-    <td>
-      Java · Python · JavaScript · TypeScript · SQL
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Backend</strong></td>
-    <td>
-      Spring Boot · REST APIs · RabbitMQ · Microservices
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Frontend</strong></td>
-    <td>
-      React · React Native · Next.js
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><strong>DevOps</strong></td>
-    <td>
-      Docker · Git · GitHub Actions · Linux
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><strong>AI / ML</strong></td>
-    <td>
-      Agentic AI · LLMs · RAG · Prompt Engineering
-    </td>
-  </tr>
-</table>
+- **Languages:** Java · Python · JavaScript · TypeScript · SQL
+- **Backend:** Spring Boot · REST APIs · RabbitMQ · Microservices
+- **Frontend:** React · React Native · Next.js
+- **DevOps:** Docker · Git · GitHub Actions · Linux
+- **AI / ML:** Agentic AI · LLMs · RAG · Prompt Engineering
 
 ---
 
