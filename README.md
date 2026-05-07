@@ -33,6 +33,16 @@
 
 ---
 
+### 🐍 Contribution Snake
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/github-snake-dark.svg" />
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/github-snake.svg" />
+  <img alt="github-snake" src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/github-snake-dark.svg" />
+</picture>
+
+---
+
 ### 📊 GitHub Stats
 
 <div align="center">
@@ -47,16 +57,6 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/activity-graph.svg" alt="Activity Graph" />
 </div>
-
----
-
-### 🐍 Contribution Snake
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/github-snake-dark.svg" />
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/github-snake.svg" />
-  <img alt="github-snake" src="https://raw.githubusercontent.com/rajehdidntwakeup/rajehdidntwakeup/output/github-snake-dark.svg" />
-</picture>
 
 ---
 

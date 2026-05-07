@@ -70,7 +70,7 @@ function generateStatsSVG(user, repos, calendar) {
     { icon: '⭐', label: 'Total Stars', value: totalStars.toLocaleString() },
     { icon: '📦', label: 'Total Repos', value: repos.length.toLocaleString() },
     { icon: '🍴', label: 'Total Forks', value: totalForks.toLocaleString() },
-    { icon: '🔥', label: 'Contributions', value: typeof totalContribs === 'number' ? totalContribs.toLocaleString() : totalContribs },
+    { icon: '🔥', label: 'Contributions', value: typeof totalContribs === 'number' ? totalContribs.toLocaleString() : totalContribs, accent: '#58a6ff' },
   ];
   const h = pad + headerH + rows.length * rowH + pad;
 
@@ -87,9 +87,10 @@ function generateStatsSVG(user, repos, calendar) {
 
   rows.forEach((r, i) => {
     const y = pad + headerH + i * rowH;
+    const valueFill = r.accent || '#c9d1d9';
     svg += `
   <text x="${pad}" y="${y + 20}" class="label">${r.icon} ${escXml(r.label)}</text>
-  <text x="${w - pad}" y="${y + 20}" class="value">${escXml(String(r.value))}</text>`;
+  <text x="${w - pad}" y="${y + 20}" class="value" fill="${valueFill}">${escXml(String(r.value))}</text>`;
     if (i < rows.length - 1) svg += `\n  <line x1="${pad}" y1="${y + rowH}" x2="${w - pad}" y2="${y + rowH}" stroke="#21262d" stroke-width="0.5"/>`;
   });
 
